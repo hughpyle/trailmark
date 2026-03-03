@@ -1,0 +1,12 @@
+Trailmark
+Copyright 2026 Trail of Bits, Inc.
+
+This product includes software developed at Trail of Bits, Inc.
+(https://www.trailofbits.com/).
+
+This product bundles the following third-party components:
+
+- tree-sitter-circom grammar (src/trailmark/tree_sitter_custom/circom/)
+  Copyright 2024 Decurity
+  Licensed under the MIT License
+  https://github.com/nicedrop/tree-sitter-circom

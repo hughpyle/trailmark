@@ -210,7 +210,7 @@ graph TD
 ## Installation
 
 ```bash
-uv pip install -e .
+uv pip install trailmark
 ```
 
 Requires Python &ge; 3.13.
