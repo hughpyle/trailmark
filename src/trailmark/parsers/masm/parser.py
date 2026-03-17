@@ -92,9 +92,7 @@ def _visit_top_level(
         _extract_procedure(child, file_path, module_id, graph)
     elif child.type == "entrypoint":
         _extract_entrypoint(child, file_path, module_id, graph)
-    elif child.type == "import":
-        _extract_import(child, graph)
-    elif child.type == "reexport":
+    elif child.type in ("import", "reexport"):
         _extract_import(child, graph)
     elif child.type == "constant":
         _extract_constant(child, file_path, module_id, graph)
