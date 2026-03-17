@@ -187,18 +187,14 @@ class TestMasmParserEdges:
     def test_local_call_is_certain(self) -> None:
         _, graph = _parse_sample()
         calls = [e for e in graph.edges if e.kind == EdgeKind.CALLS]
-        local_calls = [
-            e for e in calls if "begin" in e.source_id and "add_values" in e.target_id
-        ]
+        local_calls = [e for e in calls if "begin" in e.source_id and "add_values" in e.target_id]
         assert len(local_calls) == 1
         assert local_calls[0].confidence == EdgeConfidence.CERTAIN
 
     def test_cross_module_call_is_inferred(self) -> None:
         _, graph = _parse_sample()
         calls = [e for e in graph.edges if e.kind == EdgeKind.CALLS]
-        cross_calls = [
-            e for e in calls if "begin" in e.source_id and "checked_add" in e.target_id
-        ]
+        cross_calls = [e for e in calls if "begin" in e.source_id and "checked_add" in e.target_id]
         assert len(cross_calls) == 1
         assert cross_calls[0].confidence == EdgeConfidence.INFERRED
 
