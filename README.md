@@ -214,7 +214,7 @@ graph TD
 uv pip install trailmark
 ```
 
-Requires Python &ge; 3.13.
+Requires Python &ge; 3.12.
 
 ## Usage
 
@@ -231,6 +231,13 @@ trailmark analyze --summary path/to/project
 
 # Complexity hotspots (threshold >= 10)
 trailmark analyze --complexity 10 path/to/project
+
+# Augment the graph with external findings (SARIF from static analyzers,
+# weAudit findings from the VS Code extension). Each --sarif / --weaudit
+# flag is repeatable. Add --json to print the augmented graph.
+trailmark augment --sarif results.sarif path/to/project
+trailmark augment --weaudit findings.json path/to/project
+trailmark augment --sarif a.sarif --sarif b.sarif --json path/to/project
 ```
 
 ### Programmatic API
