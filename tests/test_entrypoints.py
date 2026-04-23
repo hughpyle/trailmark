@@ -409,6 +409,139 @@ class TestSolidity:
         assert not any("fallback" in nid for nid in ids)
 
 
+class TestJavaScriptFrameworks:
+    def test_nestjs_controller_method_detected(self, tmp_path: Path) -> None:
+        (tmp_path / "users.controller.ts").write_text(
+            "import { Controller, Get } from '@nestjs/common';\n"
+            "\n"
+            "@Controller('users')\n"
+            "export class UsersController {\n"
+            "  @Get(':id')\n"
+            "  findOne(id: string) {\n"
+            "    return { id };\n"
+            "  }\n"
+            "}\n",
+        )
+        engine = QueryEngine.from_directory(str(tmp_path), language="typescript")
+        surface = engine.attack_surface()
+        descriptions = {ep["description"] for ep in surface}
+        assert any("NestJS" in d for d in descriptions if d), surface
+
+    def test_nextjs_app_router_detected(self, tmp_path: Path) -> None:
+        # Trailmark uses file basename in node ids, so we only need a
+        # `route.ts` file (the directory structure is irrelevant for the
+        # detector, which looks at basename and export name).
+        route = tmp_path / "route.ts"
+        route.write_text(
+            "export async function GET(request: Request) {\n"
+            "  return new Response('ok');\n"
+            "}\n"
+            "export async function POST(request: Request) {\n"
+            "  return new Response('created');\n"
+            "}\n",
+        )
+        engine = QueryEngine.from_directory(str(tmp_path), language="typescript")
+        surface = engine.attack_surface()
+        descriptions = [ep["description"] for ep in surface if ep.get("description")]
+        assert any("Next.js App Router" in d for d in descriptions), surface
+
+
+class TestJavaFrameworks:
+    def test_spring_get_mapping_detected(self, tmp_path: Path) -> None:
+        (tmp_path / "UserController.java").write_text(
+            "import org.springframework.web.bind.annotation.*;\n"
+            "\n"
+            "@RestController\n"
+            "public class UserController {\n"
+            '    @GetMapping("/users/{id}")\n'
+            "    public User get(@PathVariable long id) {\n"
+            "        return null;\n"
+            "    }\n"
+            "}\n",
+        )
+        engine = QueryEngine.from_directory(str(tmp_path), language="java")
+        surface = engine.attack_surface()
+        descriptions = [ep["description"] for ep in surface if ep.get("description")]
+        assert any("Spring" in d for d in descriptions), surface
+
+    def test_jaxrs_get_detected(self, tmp_path: Path) -> None:
+        (tmp_path / "Resource.java").write_text(
+            "import javax.ws.rs.*;\n"
+            "\n"
+            '@Path("/users")\n'
+            "public class UserResource {\n"
+            "    @GET\n"
+            '    @Path("/{id}")\n'
+            '    public User get(@PathParam("id") long id) {\n'
+            "        return null;\n"
+            "    }\n"
+            "}\n",
+        )
+        engine = QueryEngine.from_directory(str(tmp_path), language="java")
+        surface = engine.attack_surface()
+        descriptions = [ep["description"] for ep in surface if ep.get("description")]
+        assert any("JAX-RS" in d for d in descriptions), surface
+
+
+class TestCSharpFrameworks:
+    def test_aspnet_core_http_get_detected(self, tmp_path: Path) -> None:
+        (tmp_path / "UsersController.cs").write_text(
+            "using Microsoft.AspNetCore.Mvc;\n"
+            "\n"
+            "[ApiController]\n"
+            '[Route("api/[controller]")]\n'
+            "public class UsersController : ControllerBase {\n"
+            '    [HttpGet("{id}")]\n'
+            "    public IActionResult Get(int id) {\n"
+            "        return Ok();\n"
+            "    }\n"
+            "}\n",
+        )
+        engine = QueryEngine.from_directory(str(tmp_path), language="c_sharp")
+        surface = engine.attack_surface()
+        descriptions = [ep["description"] for ep in surface if ep.get("description")]
+        assert any("ASP.NET" in d for d in descriptions), surface
+
+
+class TestPhpFrameworks:
+    def test_symfony_route_attribute_detected(self, tmp_path: Path) -> None:
+        (tmp_path / "ProductController.php").write_text(
+            "<?php\n"
+            "namespace App\\Controller;\n"
+            "\n"
+            "use Symfony\\Component\\Routing\\Annotation\\Route;\n"
+            "\n"
+            "class ProductController {\n"
+            "    #[Route('/products', methods: ['GET'])]\n"
+            "    public function list() {\n"
+            "        return [];\n"
+            "    }\n"
+            "}\n",
+        )
+        engine = QueryEngine.from_directory(str(tmp_path), language="php")
+        surface = engine.attack_surface()
+        descriptions = [ep["description"] for ep in surface if ep.get("description")]
+        assert any("Symfony" in d for d in descriptions), surface
+
+
+class TestErlang:
+    def test_exported_function_detected(self, tmp_path: Path) -> None:
+        (tmp_path / "auth.erl").write_text(
+            "-module(auth).\n"
+            "-export([login/2, logout/1]).\n"
+            "\n"
+            "login(User, Pass) -> ok.\n"
+            "logout(User) -> ok.\n"
+            "internal_only() -> ok.\n",
+        )
+        engine = QueryEngine.from_directory(str(tmp_path), language="erlang")
+        surface = engine.attack_surface()
+        exported_names = {ep["node_id"].split(":", 1)[-1] for ep in surface}
+        assert "login" in exported_names, surface
+        assert "logout" in exported_names, surface
+        assert "internal_only" not in exported_names, surface
+
+
 @pytest.fixture(autouse=True)
 def _isolate_cwd(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Some tests create pyproject.toml in tmp_path; make sure detection does

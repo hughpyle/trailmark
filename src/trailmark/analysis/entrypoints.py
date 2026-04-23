@@ -5,14 +5,42 @@ propagation, entrypoint enumeration, and privilege-boundary crossing
 produce meaningful results.
 
 Detection layers (later layers override earlier ones):
-1. Universal heuristics — functions named ``main``, ``[project.scripts]``
-   entries in pyproject.toml.
-2. Repo-local override file — ``.trailmark/entrypoints.toml`` at the
-   repository root.
 
-Framework-specific detection (Flask ``@app.route``, FastAPI, Django URL
-patterns, Solidity ``external``/``public``, etc.) requires per-language
-parser support for decorators/visibility and is planned for a follow-up.
+1. **Generic ``main`` heuristic** — any function named ``main`` in any
+   language. Tagged ``user_input`` / ``trusted_internal`` / ``low``.
+2. **Framework-aware scan** — decorator/attribute patterns per language:
+
+   - Python: Flask / FastAPI / aiohttp (``@app.route``, ``@router.get``);
+     Click / Typer (``@click.command``, ``@app.command``); Celery
+     (``@app.task``, ``@shared_task``).
+   - JavaScript / TypeScript: NestJS decorators (``@Get``, ``@Post``,
+     etc.), Next.js route handlers (App Router ``route.ts`` + HTTP-verb
+     exports, Pages API ``pages/api/**``), AWS Lambda handlers.
+   - Java: Spring (``@GetMapping``, ``@PostMapping``, ...), JAX-RS
+     (``@GET``, ``@POST``), Kafka ``@KafkaListener``, servlet
+     ``doGet``/``doPost``/... methods.
+   - C#: ASP.NET Core ``[HttpGet]`` / ``[Route]`` attributes, Azure
+     Functions ``[Function]`` / ``[FunctionName]``.
+   - PHP: Symfony ``#[Route(...)]`` attributes and old-style
+     ``@Route(...)`` annotations.
+   - Rust: actix-web / rocket handler attributes (``#[get("/")]``, etc.),
+     FFI exports (``#[no_mangle]``, ``pub extern "C"``),
+     ``#[tokio::main]`` / ``#[actix_web::main]`` on ``main``.
+   - Solidity: ``external``/``public`` function visibility, special
+     ``fallback()`` / ``receive()``.
+   - Cairo / StarkNet: ``#[external]``, ``#[view]``, ``#[l1_handler]``,
+     ``#[constructor]`` attributes.
+   - Circom: files declaring ``component main = ...``.
+   - Miden Assembly: ``export.<name>`` directives.
+   - Haskell: top-level ``main ::`` / ``main =`` bindings.
+   - Erlang: functions listed in ``-export([...])``.
+3. **pyproject.toml [project.scripts]** — explicitly declared CLI targets.
+4. **Repo-local override file** — ``.trailmark/entrypoints.toml`` at the
+   repository root. Always the authoritative source.
+
+See ``docs/entrypoint-patterns.md`` for the full reference, including
+frameworks not yet implemented (Express / Koa / Fastify, Laravel,
+WordPress, Rails, Cobra, axum, warp, clap, etc.).
 """
 
 from __future__ import annotations
@@ -71,6 +99,55 @@ _SOL_VISIBILITY = re.compile(
     r"\bfunction\s+\w+\s*\([^)]*\)\s*(?:[\w\s]*?\b)?(external|public)\b",
 )
 _SOL_SPECIAL = re.compile(r"^\s*(fallback|receive)\s*\(\s*\)")
+
+# JS/TS — NestJS method decorators: @Get(), @Post(), @Put(), @Delete(), @Patch(),
+# @Options(), @Head(), @All(). Capital first letter distinguishes from free
+# functions named `get`/`post`/etc.
+_JS_NEST_DECORATOR = re.compile(
+    r"^\s*@\s*(Get|Post|Put|Delete|Patch|Options|Head|All)\s*\(",
+)
+
+# Java annotations — Spring MVC / WebFlux
+_JAVA_SPRING_HANDLER = re.compile(
+    r"^\s*@\s*(Get|Post|Put|Delete|Patch|Request)Mapping\b",
+)
+
+# Java annotations — JAX-RS
+_JAVA_JAXRS_HANDLER = re.compile(
+    r"^\s*@\s*(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s*(?:\(|$)",
+)
+
+# Java — Kafka listener
+_JAVA_KAFKA_LISTENER = re.compile(r"^\s*@\s*KafkaListener\b")
+
+# C# attributes — ASP.NET Core controllers / Minimal APIs / Azure Functions
+_CS_HTTP_ATTR = re.compile(
+    r"^\s*\[\s*(HttpGet|HttpPost|HttpPut|HttpDelete|HttpPatch|HttpHead|HttpOptions|Route)\b",
+)
+_CS_AZURE_FUNC_ATTR = re.compile(r"^\s*\[\s*Function(Name)?\s*\(")
+
+# PHP — Symfony Route attribute (PHP 8+)
+_PHP_ROUTE_ATTR = re.compile(r"^\s*#\[\s*Route\s*\(")
+
+# PHP — Old-style annotation comments: @Route("/path")
+_PHP_ROUTE_ANNOTATION = re.compile(r"^\s*\*\s*@Route\s*\(")
+
+# Cairo/StarkNet attributes
+_CAIRO_CONTRACT_ATTR = re.compile(
+    r"^\s*#\[\s*(external|view|l1_handler|constructor)\b",
+)
+
+# Circom — component main declaration on the signature line
+_CIRCOM_MAIN = re.compile(r"^\s*component\s+main\b")
+
+# Miden Assembly — exported procedures and program begin block
+_MASM_EXPORT = re.compile(r"^\s*export\.([A-Za-z_]\w*)")
+
+# Erlang — -export([...]) declaration
+_ERLANG_EXPORT = re.compile(r"^\s*-\s*export\s*\(\s*\[")
+
+# Haskell — `main :: IO ()` / `main = ...` at column 0
+_HASKELL_MAIN = re.compile(r"^main\s*(::|=)")
 
 _KIND_BY_NAME = {k.value: k for k in EntrypointKind}
 _TRUST_BY_NAME = {t.value: t for t in TrustLevel}
@@ -142,6 +219,24 @@ def _detect_for_unit(
         return _detect_rust(cache, unit, path)
     if path.endswith(".sol"):
         return _detect_solidity(cache, unit, path)
+    if path.endswith((".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx")):
+        return _detect_js_ts(cache, unit, path)
+    if path.endswith(".java"):
+        return _detect_java(cache, unit, path)
+    if path.endswith(".cs"):
+        return _detect_csharp(cache, unit, path)
+    if path.endswith(".php"):
+        return _detect_php(cache, unit, path)
+    if path.endswith(".cairo"):
+        return _detect_cairo(cache, unit, path)
+    if path.endswith(".circom"):
+        return _detect_circom(cache, unit, path)
+    if path.endswith(".masm"):
+        return _detect_masm(cache, unit, path)
+    if path.endswith(".hs"):
+        return _detect_haskell(cache, unit, path)
+    if path.endswith(".erl"):
+        return _detect_erlang(cache, unit, path)
     return None
 
 
@@ -241,6 +336,271 @@ def _detect_solidity(
     return None
 
 
+def _detect_js_ts(
+    cache: _SourceCache,
+    unit: CodeUnit,
+    path: str,
+) -> EntrypointTag | None:
+    # File-path conventions first (Next.js).
+    nextjs_tag = _detect_nextjs_route(unit, path)
+    if nextjs_tag is not None:
+        return nextjs_tag
+
+    # AWS Lambda — `exports.handler = ...` or `export const handler = ...`
+    if unit.name in {"handler", "lambdaHandler"}:
+        signature = cache.line(path, unit.location.start_line) or ""
+        if "exports.handler" in signature or "export " in signature:
+            return EntrypointTag(
+                kind=EntrypointKind.API,
+                trust_level=TrustLevel.UNTRUSTED_EXTERNAL,
+                description="AWS Lambda handler",
+                asset_value=AssetValue.HIGH,
+            )
+
+    # NestJS decorators on methods.
+    decorators = cache.decorators_above(path, unit.location.start_line)
+    for line in decorators:
+        if _JS_NEST_DECORATOR.match(line):
+            return EntrypointTag(
+                kind=EntrypointKind.API,
+                trust_level=TrustLevel.UNTRUSTED_EXTERNAL,
+                description="NestJS controller method",
+                asset_value=AssetValue.HIGH,
+            )
+    return None
+
+
+_NEXTJS_VERBS = frozenset({"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"})
+
+
+def _detect_nextjs_route(unit: CodeUnit, path: str) -> EntrypointTag | None:
+    """Detect Next.js route handlers based on file path conventions.
+
+    - App Router: `app/**/route.{js,jsx,ts,tsx,mjs,cjs}` — named exports
+      matching HTTP verbs (GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS).
+    - Pages API: `pages/api/**/*.{js,jsx,ts,tsx}` — any default export
+      (named `handler` or `default` in Trailmark's node IDs).
+    """
+    normalized = path.replace("\\", "/")
+    basename = normalized.rsplit("/", 1)[-1]
+    if basename.startswith("route.") and unit.name in _NEXTJS_VERBS:
+        return EntrypointTag(
+            kind=EntrypointKind.API,
+            trust_level=TrustLevel.UNTRUSTED_EXTERNAL,
+            description="Next.js App Router handler",
+            asset_value=AssetValue.HIGH,
+        )
+    if "/pages/api/" in normalized and unit.name in {"handler", "default"}:
+        return EntrypointTag(
+            kind=EntrypointKind.API,
+            trust_level=TrustLevel.UNTRUSTED_EXTERNAL,
+            description="Next.js Pages API handler",
+            asset_value=AssetValue.HIGH,
+        )
+    return None
+
+
+def _detect_java(
+    cache: _SourceCache,
+    unit: CodeUnit,
+    path: str,
+) -> EntrypointTag | None:
+    decorators = cache.decorators_above(path, unit.location.start_line)
+    for line in decorators:
+        if _JAVA_SPRING_HANDLER.match(line):
+            return EntrypointTag(
+                kind=EntrypointKind.API,
+                trust_level=TrustLevel.UNTRUSTED_EXTERNAL,
+                description="Spring MVC/WebFlux handler",
+                asset_value=AssetValue.HIGH,
+            )
+        if _JAVA_JAXRS_HANDLER.match(line):
+            return EntrypointTag(
+                kind=EntrypointKind.API,
+                trust_level=TrustLevel.UNTRUSTED_EXTERNAL,
+                description="JAX-RS handler",
+                asset_value=AssetValue.HIGH,
+            )
+        if _JAVA_KAFKA_LISTENER.match(line):
+            return EntrypointTag(
+                kind=EntrypointKind.THIRD_PARTY,
+                trust_level=TrustLevel.SEMI_TRUSTED_EXTERNAL,
+                description="Kafka listener",
+                asset_value=AssetValue.MEDIUM,
+            )
+    # Servlet convention: method names doGet/doPost/... on an HttpServlet.
+    if unit.name in {"doGet", "doPost", "doPut", "doDelete", "doHead", "doOptions", "doTrace"}:
+        return EntrypointTag(
+            kind=EntrypointKind.API,
+            trust_level=TrustLevel.UNTRUSTED_EXTERNAL,
+            description="HttpServlet method",
+            asset_value=AssetValue.HIGH,
+        )
+    return None
+
+
+def _detect_csharp(
+    cache: _SourceCache,
+    unit: CodeUnit,
+    path: str,
+) -> EntrypointTag | None:
+    decorators = cache.decorators_above(path, unit.location.start_line)
+    for line in decorators:
+        if _CS_HTTP_ATTR.match(line):
+            return EntrypointTag(
+                kind=EntrypointKind.API,
+                trust_level=TrustLevel.UNTRUSTED_EXTERNAL,
+                description="ASP.NET Core HTTP handler",
+                asset_value=AssetValue.HIGH,
+            )
+        if _CS_AZURE_FUNC_ATTR.match(line):
+            return EntrypointTag(
+                kind=EntrypointKind.API,
+                trust_level=TrustLevel.UNTRUSTED_EXTERNAL,
+                description="Azure Function",
+                asset_value=AssetValue.HIGH,
+            )
+    return None
+
+
+def _detect_php(
+    cache: _SourceCache,
+    unit: CodeUnit,
+    path: str,
+) -> EntrypointTag | None:
+    decorators = cache.decorators_above(path, unit.location.start_line)
+    for line in decorators:
+        if _PHP_ROUTE_ATTR.match(line) or _PHP_ROUTE_ANNOTATION.match(line):
+            return EntrypointTag(
+                kind=EntrypointKind.API,
+                trust_level=TrustLevel.UNTRUSTED_EXTERNAL,
+                description="Symfony Route attribute",
+                asset_value=AssetValue.HIGH,
+            )
+    return None
+
+
+def _detect_cairo(
+    cache: _SourceCache,
+    unit: CodeUnit,
+    path: str,
+) -> EntrypointTag | None:
+    decorators = cache.decorators_above(path, unit.location.start_line)
+    for line in decorators:
+        if _CAIRO_CONTRACT_ATTR.match(line):
+            return EntrypointTag(
+                kind=EntrypointKind.API,
+                trust_level=TrustLevel.UNTRUSTED_EXTERNAL,
+                description="Cairo/StarkNet contract entrypoint",
+                asset_value=AssetValue.HIGH,
+            )
+    return None
+
+
+def _detect_circom(
+    cache: _SourceCache,
+    unit: CodeUnit,
+    path: str,
+) -> EntrypointTag | None:
+    """Treat the file containing `component main = Template(...)` as an entrypoint.
+
+    The parser exposes template/function nodes, not `component main` itself;
+    we flag the module node if the file declares a main component.
+    """
+    if unit.kind.value != "module":
+        return None
+    for line in cache.iter_lines(path):
+        if _CIRCOM_MAIN.match(line):
+            return EntrypointTag(
+                kind=EntrypointKind.USER_INPUT,
+                trust_level=TrustLevel.UNTRUSTED_EXTERNAL,
+                description="Circom circuit main component",
+                asset_value=AssetValue.HIGH,
+            )
+    return None
+
+
+def _detect_masm(
+    cache: _SourceCache,
+    unit: CodeUnit,
+    path: str,
+) -> EntrypointTag | None:
+    signature = cache.line(path, unit.location.start_line) or ""
+    if _MASM_EXPORT.match(signature):
+        return EntrypointTag(
+            kind=EntrypointKind.API,
+            trust_level=TrustLevel.UNTRUSTED_EXTERNAL,
+            description="Miden Assembly exported procedure",
+            asset_value=AssetValue.MEDIUM,
+        )
+    return None
+
+
+def _detect_haskell(
+    cache: _SourceCache,
+    unit: CodeUnit,
+    path: str,
+) -> EntrypointTag | None:
+    if unit.name != "main":
+        return None
+    # Confirm the file actually declares `main ::` or `main =` at column 0.
+    for line in cache.iter_lines(path):
+        if _HASKELL_MAIN.match(line):
+            return EntrypointTag(
+                kind=EntrypointKind.USER_INPUT,
+                trust_level=TrustLevel.UNTRUSTED_EXTERNAL,
+                description="Haskell main",
+                asset_value=AssetValue.HIGH,
+            )
+    return None
+
+
+def _detect_erlang(
+    cache: _SourceCache,
+    unit: CodeUnit,
+    path: str,
+) -> EntrypointTag | None:
+    """Mark any function listed in -export([...]) as an entrypoint."""
+    exported = _erlang_exported_names(cache, path)
+    if not exported:
+        return None
+    if unit.name in exported:
+        return EntrypointTag(
+            kind=EntrypointKind.API,
+            trust_level=TrustLevel.SEMI_TRUSTED_EXTERNAL,
+            description="Erlang -export declaration",
+            asset_value=AssetValue.MEDIUM,
+        )
+    return None
+
+
+def _erlang_exported_names(cache: _SourceCache, path: str) -> set[str]:
+    """Extract the names inside every -export([fn/arity, ...]) in the file."""
+    names: set[str] = set()
+    in_export = False
+    buf: list[str] = []
+    for line in cache.iter_lines(path):
+        if not in_export:
+            match = _ERLANG_EXPORT.match(line)
+            if match:
+                in_export = True
+                buf = [line[match.end() :]]
+        else:
+            buf.append(line)
+        if in_export and "]" in line:
+            joined = " ".join(buf)
+            list_section = joined.split("]", 1)[0]
+            for entry in list_section.split(","):
+                entry = entry.strip()
+                if not entry or "/" not in entry:
+                    continue
+                name, _, _ = entry.partition("/")
+                names.add(name.strip())
+            in_export = False
+            buf = []
+    return names
+
+
 class _SourceCache:
     """Lazily reads and caches source files during a detection pass."""
 
@@ -266,28 +626,35 @@ class _SourceCache:
             return lines[idx]
         return None
 
-    def decorators_above(self, path: str, start_line: int) -> list[str]:
-        """Return contiguous non-blank lines immediately above ``start_line``.
+    def iter_lines(self, path: str) -> list[str]:
+        """Return all lines of the file (cached) for whole-file scans."""
+        return self._read(path)
 
-        Walks backwards until a blank line or a non-decorator-looking line
-        is hit. Returns the collected lines in reading order (top-down).
+    def decorators_above(self, path: str, start_line: int) -> list[str]:
+        """Return decorator-style lines around ``start_line``.
+
+        Different parsers report different ``start_line`` values for decorated
+        functions: Python points at the ``def`` line (decorators are above),
+        Java/C#/PHP-attribute parsers often point at the decorator line
+        itself (decorators are at or just below). We scan a small window
+        on either side and keep only lines that look like decorators or
+        attributes (``@foo``, ``#[foo]``, or ``[foo]`` — the last for C#).
         """
         lines = self._read(path)
         start_idx = start_line - 1
+        lo = max(0, start_idx - _DECORATOR_LOOKBACK)
+        hi = min(len(lines), start_idx + 4)
         collected: list[str] = []
-        i = start_idx - 1
-        while i >= 0:
-            candidate = lines[i]
-            stripped = candidate.strip()
+        for i in range(lo, hi):
+            stripped = lines[i].strip()
             if not stripped:
-                break
-            if not (stripped.startswith("@") or stripped.startswith("#[")):
-                break
-            collected.append(candidate)
-            i -= 1
-            if len(collected) >= _DECORATOR_LOOKBACK:
-                break
-        collected.reverse()
+                continue
+            if (
+                stripped.startswith("@")
+                or stripped.startswith("#[")
+                or (stripped.startswith("[") and not stripped.startswith("[["))
+            ):
+                collected.append(lines[i])
         return collected
 
     def signature_block(self, path: str, start_line: int) -> str | None:
