@@ -78,11 +78,7 @@ class TestPyprojectScripts:
     def test_pyproject_script_overrides_main_heuristic(self, tmp_path: Path) -> None:
         """A pyproject.toml script target beats the generic main heuristic."""
         (tmp_path / "pyproject.toml").write_text(
-            '[project]\n'
-            'name = "demo"\n'
-            'version = "0.0.0"\n'
-            '[project.scripts]\n'
-            'demo = "demo:main"\n',
+            '[project]\nname = "demo"\nversion = "0.0.0"\n[project.scripts]\ndemo = "demo:main"\n',
         )
         src = tmp_path / "demo.py"
         src.write_text("def main():\n    pass\n")
@@ -96,10 +92,10 @@ class TestPyprojectScripts:
     def test_pyproject_script_in_parent_is_discovered(self, tmp_path: Path) -> None:
         """Detection walks up from the parse path to find pyproject.toml."""
         (tmp_path / "pyproject.toml").write_text(
-            '[project]\n'
+            "[project]\n"
             'name = "demo"\n'
             'version = "0.0.0"\n'
-            '[project.scripts]\n'
+            "[project.scripts]\n"
             'demo = "pkg.app:main"\n',
         )
         pkg = tmp_path / "pkg"
@@ -128,7 +124,7 @@ class TestOverrideFile:
         (tmp_path / "app.py").write_text("def handle_request(req):\n    pass\n")
         self._write_override(
             tmp_path,
-            '[[entrypoint]]\n'
+            "[[entrypoint]]\n"
             'node = "app:handle_request"\n'
             'kind = "api"\n'
             'trust = "untrusted_external"\n'
@@ -146,13 +142,12 @@ class TestOverrideFile:
     def test_override_beats_pyproject_and_main(self, tmp_path: Path) -> None:
         """Override file is the final word."""
         (tmp_path / "pyproject.toml").write_text(
-            '[project]\nname = "x"\nversion = "0"\n'
-            '[project.scripts]\nx = "app:main"\n',
+            '[project]\nname = "x"\nversion = "0"\n[project.scripts]\nx = "app:main"\n',
         )
         (tmp_path / "app.py").write_text("def main():\n    pass\n")
         self._write_override(
             tmp_path,
-            '[[entrypoint]]\n'
+            "[[entrypoint]]\n"
             'node = "app:main"\n'
             'kind = "api"\n'
             'trust = "untrusted_external"\n'
@@ -170,9 +165,7 @@ class TestOverrideFile:
         (pkg / "app.py").write_text("def serve():\n    pass\n")
         self._write_override(
             tmp_path,
-            '[[entrypoint]]\n'
-            'node = "pkg.app:serve"\n'
-            'kind = "api"\n',
+            '[[entrypoint]]\nnode = "pkg.app:serve"\nkind = "api"\n',
         )
         engine = QueryEngine.from_directory(str(tmp_path))
         ids = {ep["node_id"] for ep in engine.attack_surface()}
@@ -281,11 +274,7 @@ class TestPythonFrameworks:
 
     def test_click_command_detected(self, tmp_path: Path) -> None:
         (tmp_path / "tool.py").write_text(
-            "import click\n"
-            "\n"
-            "@click.command()\n"
-            "def run():\n"
-            "    pass\n",
+            "import click\n\n@click.command()\ndef run():\n    pass\n",
         )
         engine = QueryEngine.from_directory(str(tmp_path))
         by_id = {ep["node_id"]: ep for ep in engine.attack_surface()}
@@ -330,12 +319,12 @@ class TestPythonFrameworks:
 class TestRustFrameworks:
     def test_actix_web_get_detected(self, tmp_path: Path) -> None:
         (tmp_path / "server.rs").write_text(
-            'use actix_web::{get, Responder};\n'
-            '\n'
+            "use actix_web::{get, Responder};\n"
+            "\n"
             '#[get("/users/{id}")]\n'
-            'async fn get_user() -> impl Responder {\n'
+            "async fn get_user() -> impl Responder {\n"
             '    "ok"\n'
-            '}\n',
+            "}\n",
         )
         engine = QueryEngine.from_directory(str(tmp_path), language="rust")
         ids = {ep["node_id"] for ep in engine.attack_surface()}
@@ -343,10 +332,7 @@ class TestRustFrameworks:
 
     def test_no_mangle_ffi_detected(self, tmp_path: Path) -> None:
         (tmp_path / "ffi.rs").write_text(
-            '#[no_mangle]\n'
-            'pub extern "C" fn add_one(x: i32) -> i32 {\n'
-            '    x + 1\n'
-            '}\n',
+            '#[no_mangle]\npub extern "C" fn add_one(x: i32) -> i32 {\n    x + 1\n}\n',
         )
         engine = QueryEngine.from_directory(str(tmp_path), language="rust")
         by_id = {ep["node_id"]: ep for ep in engine.attack_surface()}

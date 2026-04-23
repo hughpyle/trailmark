@@ -210,7 +210,7 @@ def _detect_rust(
         return EntrypointTag(
             kind=EntrypointKind.API,
             trust_level=TrustLevel.UNTRUSTED_EXTERNAL,
-            description="Rust FFI export (pub extern \"C\")",
+            description='Rust FFI export (pub extern "C")',
             asset_value=AssetValue.HIGH,
         )
     return None
@@ -488,5 +488,3 @@ def _resolve_override_node(graph: CodeGraph, reference: str) -> str | None:
         module_path, func_name = reference.rsplit(":", 1)
         return _resolve_script_target(graph, module_path, func_name)
     return None
-
-
