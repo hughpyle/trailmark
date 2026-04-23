@@ -50,8 +50,12 @@ Linux (CI runs on Ubuntu without issue).
 
 ## Architecture
 
-Trailmark has a three-layer architecture:
+Trailmark has a parse layer followed by a three-layer analysis stack:
 
+0. **Parse API** (`src/trailmark/parse.py`) -- public entry point for
+   parsing files or directories into a raw `CodeGraph`. Lazily imports
+   the appropriate language parser. Used directly for parse-only
+   workflows and internally by `QueryEngine`.
 1. **CodeGraph** (`src/trailmark/models/graph.py`) -- mutable data
    container holding nodes, edges, annotations, and entrypoints.
 2. **GraphStore** (`src/trailmark/storage/graph_store.py`) -- wraps
@@ -75,6 +79,7 @@ Trailmark has a three-layer architecture:
 
 1. Create `src/trailmark/parsers/<lang>/parser.py` implementing the
    `BaseParser` protocol from `src/trailmark/parsers/base.py`.
-2. Register the language in `src/trailmark/parsers/__init__.py`.
+2. Register the parser in `_PARSER_MAP` and its file extensions in
+   `_LANGUAGE_EXTENSIONS`, both in `src/trailmark/parse.py`.
 3. Add tests in `tests/test_<lang>_parser.py`.
 4. Update the language table in `README.md`.

@@ -104,6 +104,11 @@ _EXCLUDED_DIRS = frozenset(
 )
 
 
+def should_skip_dir(dirname: str) -> bool:
+    """Return whether a directory should be skipped during source walks."""
+    return dirname in _EXCLUDED_DIRS or dirname.startswith(".")
+
+
 def walk_source_files(
     dir_path: str,
     extensions: tuple[str, ...],
@@ -114,7 +119,7 @@ def walk_source_files(
     and does not follow symlinks.
     """
     for root, dirs, files in os.walk(dir_path, followlinks=False):
-        dirs[:] = [d for d in dirs if d not in _EXCLUDED_DIRS and not d.startswith(".")]
+        dirs[:] = [d for d in dirs if not should_skip_dir(d)]
         for fname in sorted(files):
             if any(fname.endswith(ext) for ext in extensions):
                 yield os.path.join(root, fname)

@@ -12,7 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from trailmark.query.api import QueryEngine, detect_languages
+from trailmark.parse import detect_languages
+from trailmark.query.api import QueryEngine
 
 
 class TestDetectLanguages:
@@ -40,6 +41,17 @@ class TestDetectLanguages:
         vendor = tmp_path / "node_modules" / "dep"
         vendor.mkdir(parents=True)
         (vendor / "thing.js").write_text("export default {};\n")
+        detected = detect_languages(str(tmp_path))
+        assert detected == ["python"], detected
+
+    def test_skips_parser_excluded_directories(self, tmp_path: Path) -> None:
+        (tmp_path / "app.py").write_text("x = 1\n")
+        vendor = tmp_path / "vendor"
+        vendor.mkdir()
+        (vendor / "dep.go").write_text("package dep\n")
+        cache = tmp_path / ".mypy_cache"
+        cache.mkdir()
+        (cache / "stub.py").write_text("x = 1\n")
         detected = detect_languages(str(tmp_path))
         assert detected == ["python"], detected
 

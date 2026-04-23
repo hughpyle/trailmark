@@ -367,7 +367,12 @@ See [docs/entrypoint-patterns.md](docs/entrypoint-patterns.md) for the full refe
 ### Programmatic API
 
 ```python
+from trailmark.parse import parse_directory, parse_file
 from trailmark.query.api import QueryEngine
+
+# Parse-only API: get the raw CodeGraph without building GraphStore/QueryEngine.
+graph = parse_file("path/to/file.py")
+graph = parse_directory("path/to/project", language="auto")
 
 # Single-language (default) or auto-detect + merge across all languages
 engine = QueryEngine.from_directory("path/to/project")

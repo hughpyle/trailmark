@@ -18,8 +18,9 @@ import pytest
 
 import trailmark
 from trailmark.cli import build_parser
+from trailmark.parse import supported_languages
 from trailmark.parsers.javascript.parser import _EXTENSIONS as JS_EXTENSIONS
-from trailmark.query.api import _PARSER_MAP, QueryEngine
+from trailmark.query.api import QueryEngine
 
 
 def _find_repo_root() -> Path:
@@ -110,16 +111,16 @@ class TestSupportedLanguages:
     def test_every_readme_language_has_parser(self, readme_text: str) -> None:
         """Every language in the README table must have a parser registered."""
         readme_languages = _extract_languages_from_readme(readme_text)
-        registered = {_normalize(key) for key in _PARSER_MAP}
+        registered = {_normalize(key) for key in supported_languages()}
         for lang in readme_languages:
             assert _normalize(lang) in registered, (
-                f"README lists `{lang}` but no parser is registered in _PARSER_MAP"
+                f"README lists `{lang}` but no parser is registered"
             )
 
     def test_every_registered_parser_is_documented(self, readme_text: str) -> None:
-        """Every parser in _PARSER_MAP should appear in the README table."""
+        """Every registered parser should appear in the README table."""
         readme_languages = {_normalize(x) for x in _extract_languages_from_readme(readme_text)}
-        for key in _PARSER_MAP:
+        for key in supported_languages():
             assert _normalize(key) in readme_languages, (
                 f"Parser `{key}` is registered but not documented in README"
             )
@@ -220,6 +221,12 @@ class TestCLIDefaults:
         analyze = subparsers_action.choices["analyze"]
         action = _find_option(analyze, "--complexity")
         assert "-c" in action.option_strings
+
+
+class TestParseOnlyAPI:
+    def test_readme_mentions_parse_only_api(self, readme_text: str) -> None:
+        assert "from trailmark.parse import parse_directory, parse_file" in readme_text
+        assert 'graph = parse_file("path/to/file.py")' in readme_text
 
 
 def _read_requires_python(pyproject_data: dict[str, object]) -> str:
