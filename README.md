@@ -244,6 +244,13 @@ trailmark augment --sarif a.sarif --sarif b.sarif --json path/to/project
 # override file at .trailmark/entrypoints.toml (see below).
 trailmark entrypoints path/to/project
 trailmark entrypoints --json path/to/project
+
+# Structural diff between two code graphs. Accepts directory paths or
+# git refs (branches, tags, commits). Surfaces added/removed nodes,
+# call-edge changes, and — most usefully — attack-surface changes.
+trailmark diff before/ after/
+trailmark diff --repo . main HEAD          # compare git refs
+trailmark diff --json before/ after/        # machine-readable output
 ```
 
 ### Declaring entrypoints

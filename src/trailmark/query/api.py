@@ -8,6 +8,7 @@ from dataclasses import asdict
 from typing import Any
 
 from trailmark.analysis.augment import augment_from_sarif, augment_from_weaudit
+from trailmark.analysis.diff import compute_diff
 from trailmark.analysis.entrypoints import detect_entrypoints
 from trailmark.analysis.preanalysis import run_preanalysis
 from trailmark.models.annotations import Annotation, AnnotationKind
@@ -84,6 +85,15 @@ class QueryEngine:
         """Create an engine from a pre-built CodeGraph."""
         store = GraphStore(graph)
         return cls(store)
+
+    def diff_against(self, other: QueryEngine) -> dict[str, Any]:
+        """Return a structured diff of ``self`` relative to ``other``.
+
+        ``other`` is treated as the "before" state, ``self`` as "after".
+        See ``trailmark.analysis.diff.compute_diff`` for the returned
+        schema.
+        """
+        return compute_diff(other._store._graph, self._store._graph)  # noqa: SLF001
 
     def callers_of(self, name: str) -> list[dict[str, Any]]:
         """Find all callers of a function/method by name."""

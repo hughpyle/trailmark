@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 from typing import Any
 
 from trailmark.query.api import QueryEngine
@@ -41,6 +42,38 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=0,
         help="Show functions with complexity >= threshold",
+    )
+
+    diff_cmd = subparsers.add_parser(
+        "diff",
+        help="Structural diff between two code graphs",
+    )
+    diff_cmd.add_argument(
+        "before",
+        help="Path or git ref for the 'before' snapshot",
+    )
+    diff_cmd.add_argument(
+        "after",
+        help="Path or git ref for the 'after' snapshot",
+    )
+    diff_cmd.add_argument(
+        "--language",
+        "-l",
+        default="python",
+        help="Source language (default: python)",
+    )
+    diff_cmd.add_argument(
+        "--repo",
+        default=".",
+        help=(
+            "Repository root used to resolve git refs (default: cwd). "
+            "Ignored when BEFORE and AFTER are directory paths."
+        ),
+    )
+    diff_cmd.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the structured diff as JSON instead of a report",
     )
 
     entrypoints = subparsers.add_parser(
@@ -106,6 +139,8 @@ def main() -> None:
         _run_augment(args)
     elif args.command == "entrypoints":
         _run_entrypoints(args)
+    elif args.command == "diff":
+        _run_diff(args)
 
 
 def _run_analyze(args: argparse.Namespace) -> None:
@@ -206,3 +241,35 @@ def _run_entrypoints(args: argparse.Namespace) -> None:
         )
         if ep.get("description"):
             print(f"    {ep['description']}")
+
+
+def _run_diff(args: argparse.Namespace) -> None:
+    """Execute the diff subcommand."""
+    from trailmark.analysis.diff import format_diff, git_worktree
+
+    before_engine = _load_diff_side(args.before, args.language, args.repo)
+    after_engine = _load_diff_side(args.after, args.language, args.repo)
+    diff = after_engine.diff_against(before_engine)
+
+    if args.json:
+        print(json.dumps(diff, indent=2))
+        return
+    print(format_diff(diff))
+    _ = git_worktree  # re-export for downstream scripts importing from cli
+
+
+def _load_diff_side(
+    side: str,
+    language: str,
+    repo: str,
+) -> QueryEngine:
+    """Build a QueryEngine for a path or git ref."""
+    from trailmark.analysis.diff import git_worktree
+
+    candidate = Path(side)
+    if candidate.exists() and candidate.is_dir():
+        return QueryEngine.from_directory(str(candidate), language=language)
+
+    repo_path = Path(repo).resolve()
+    with git_worktree(repo_path, side) as worktree:
+        return QueryEngine.from_directory(str(worktree), language=language)
