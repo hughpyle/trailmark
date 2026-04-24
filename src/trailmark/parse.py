@@ -66,6 +66,7 @@ _LANGUAGE_EXTENSIONS: dict[str, tuple[str, ...]] = {
 
 _SUPPORTED_LANGUAGES = tuple(_PARSER_MAP.keys())
 
+
 def supported_languages() -> tuple[str, ...]:
     """Return the supported Trailmark parser language names."""
     return _SUPPORTED_LANGUAGES
